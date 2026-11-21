@@ -1,0 +1,26 @@
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
+local Window = Library.CreateLib("Jazz hub", "Ocean")
+
+-- MAIN --
+local Main = Window:NewTab("Auto farm")
+local MainSection = Main:NewSection("Main")
+
+MainSection:NewButton("Auto farm", "It helps you get levels without doing anything", function()
+    loadstring(game:HttpGet("https://raw.githubusercontent.com/huy384/redzHub/refs/heads/main/redzHub.lua"))()
+end)
+
+MainSection:NewToggle("Super-Human", "go fast and jump high", function(state)
+    local player = game:GetService("Players").LocalPlayer
+    local character = player.Character or player.CharacterAdded:Wait()
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    if not humanoid then return end
+
+    if state then
+        humanoid.UseJumpPower = true
+        humanoid.WalkSpeed = 120
+        humanoid.JumpPower = 120
+    else
+        humanoid.WalkSpeed = 16
+        humanoid.JumpPower = 50
+    end
+end)
