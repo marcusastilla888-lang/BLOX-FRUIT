@@ -2,7 +2,7 @@
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu'))()
 
 local Window = Rayfield:CreateWindow({
-    Name = "Blox Fruits Auto-Quest",
+    Name = "🎃Jazzhub🎃",
     LoadingTitle = "Loading Interface...",
     LoadingSubtitle = "Mobile & PC Ready",
     ConfigurationSaving = { Enabled = false }
