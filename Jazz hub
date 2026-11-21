@@ -1,26 +1,292 @@
-local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/xHeptc/Kavo-UI-Library/main/source.lua"))()
-local Window = Library.CreateLib("Jazz hub", "Ocean")
+-- 1. Load UI Library & Create Window First
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu'))()
 
--- MAIN --
-local Main = Window:NewTab("Auto farm")
-local MainSection = Main:NewSection("Main")
+local Window = Rayfield:CreateWindow({
+    Name = "Blox Fruits Auto-Quest",
+    LoadingTitle = "Loading Interface...",
+    LoadingSubtitle = "Mobile & PC Ready",
+    ConfigurationSaving = { Enabled = false }
+})
 
-MainSection:NewButton("Auto farm", "It helps you get levels without doing anything", function()
-    loadstring(game:HttpGet("https://pastebin.com/raw/mJisB7cf"))()
-end)
+-- 2. Settings
+local Settings = {
+    Enabled = false,
+    AutoQuest = true,
+    ManualTarget = "Bandit",
+    OffsetY = 8,
+    TweenSpeed = 250
+}
 
-MainSection:NewToggle("Super-Human", "go fast and jump high", function(state)
-    local player = game:GetService("Players").LocalPlayer
-    local character = player.Character or player.CharacterAdded:Wait()
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    if not humanoid then return end
+-- 3. Create Tabs & Buttons Immediately (No icon ID number)
+local FarmTab = Window:CreateTab("Main Farm")
 
-    if state then
-        humanoid.UseJumpPower = true
-        humanoid.WalkSpeed = 120
-        humanoid.JumpPower = 120
-    else
-        humanoid.WalkSpeed = 16
-        humanoid.JumpPower = 50
+FarmTab:CreateToggle({
+    Name = "Enable Auto Farm",
+    CurrentValue = false,
+    Flag = "AutoFarmToggle",
+    Callback = function(Value)
+        Settings.Enabled = Value
+        if Value then
+            startAutoFarm()
+        end
     end
+})
+
+FarmTab:CreateToggle({
+    Name = "Auto Select Quest by Level",
+    CurrentValue = true,
+    Flag = "AutoQuestToggle",
+    Callback = function(Value)
+        Settings.AutoQuest = Value
+    end
+})
+
+FarmTab:CreateInput({
+    Name = "Manual Target (If Auto Quest Off)",
+    PlaceholderText = "e.g. Bandit",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(Text)
+        if Text ~= "" then
+            Settings.ManualTarget = Text
+        end
+    end
+})
+
+FarmTab:CreateSlider({
+    Name = "Hover Height (Studs)",
+    Range = {0, 20},
+    Increment = 1,
+    Suffix = " Studs",
+    CurrentValue = 8,
+    Flag = "OffsetYSlider",
+    Callback = function(Value)
+        Settings.OffsetY = Value
+    end
+})
+
+FarmTab:CreateSlider({
+    Name = "Tween Speed",
+    Range = {50, 400},
+    Increment = 10,
+    Suffix = " Studs/s",
+    CurrentValue = 250,
+    Flag = "TweenSpeedSlider",
+    Callback = function(Value)
+        Settings.TweenSpeed = Value
+    end
+})
+
+-- 4. Services & Quest Progression Data
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+local VirtualUser = game:GetService("VirtualUser")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+local LocalPlayer = Players.LocalPlayer
+
+local QuestData = {
+    { MinLevel = 1,  MaxLevel = 9,   EnemyName = "Bandit",         QuestName = "BanditQuest1", QuestLevel = 1, NPCFrame = CFrame.new(1059, 16, 1545) },
+    { MinLevel = 10, MaxLevel = 14,  EnemyName = "Monkey",         QuestName = "JungleQuest",  QuestLevel = 1, NPCFrame = CFrame.new(-1598, 37, 153) },
+    { MinLevel = 15, MaxLevel = 29,  EnemyName = "Gorilla",        QuestName = "JungleQuest",  QuestLevel = 2, NPCFrame = CFrame.new(-1598, 37, 153) },
+    { MinLevel = 30, MaxLevel = 39,  EnemyName = "Pirate",         QuestName = "BuggyQuest1",  QuestLevel = 1, NPCFrame = CFrame.new(-1140, 5, 3829) },
+    { MinLevel = 40, MaxLevel = 59,  EnemyName = "Brute",          QuestName = "BuggyQuest1",  QuestLevel = 2, NPCFrame = CFrame.new(-1140, 5, 3829) },
+    { MinLevel = 60, MaxLevel = 74,  EnemyName = "Desert Bandit",  QuestName = "DesertQuest",  QuestLevel = 1, NPCFrame = CFrame.new(897, 6, 4389) },
+    { MinLevel = 75, MaxLevel = 89,  EnemyName = "Desert Officer", QuestName = "DesertQuest",  QuestLevel = 2, NPCFrame = CFrame.new(897, 6, 4389) },
+    { MinLevel = 90, MaxLevel = 100, EnemyName = "Snow Bandit",    QuestName = "SnowQuest",    QuestLevel = 1, NPCFrame = CFrame.new(1386, 87, -1298) }
+}
+
+-- 5. Helper Functions & Main Farm Loop
+local function getPlayerLevel()
+    local data = LocalPlayer:FindFirstChild("Data")
+    if data and data:FindFirstChild("Level") then
+        return data.Level.Value
+    end
+    return 1
+end
+
+local function getQuestForLevel()
+    local currentLevel = getPlayerLevel()
+    local selectedQuest = QuestData
+
+    for _, info in ipairs(QuestData) do
+        if currentLevel >= info.MinLevel then
+            selectedQuest = info
+        end
+    end
+    return selectedQuest
+end
+
+local function hasActiveQuest()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local mainGui = playerGui and playerGui:FindFirstChild("Main")
+    if mainGui and mainGui:FindFirstChild("Quest") then
+        return mainGui.Quest.Visible
+    end
+    return false
+end
+
+local function getCharacterParts()
+    local character = LocalPlayer.Character
+    if not character then return nil, nil end
+    return character:FindFirstChild("HumanoidRootPart"), character:FindFirstChild("Humanoid")
+end
+
+local function moveToCFrame(targetCFrame)
+    local myRoot = getCharacterParts()
+    if not myRoot then return end
+
+    local distance = (myRoot.Position - targetCFrame.Position).Magnitude
+    local duration = distance / Settings.TweenSpeed
+
+    local tween = TweenService:Create(myRoot, TweenInfo.new(duration, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+    tween:Play()
+    tween.Completed:Wait()
+end
+
+local function acceptQuest(questInfo)
+    moveToCFrame(questInfo.NPCFrame)
+    task.wait(0.25)
+
+    local remotes = ReplicatedStorage:FindFirstChild("Remotes")
+    if remotes and remotes:FindFirstChild("CommF_") then
+        remotes.CommF_:InvokeServer("StartQuest", questInfo.QuestName, questInfo.QuestLevel)
+    end
+end
+
+local function getNearestEnemy(targetName)
+    local enemiesFolder = workspace:FindFirstChild("Enemies")
+    local myRoot = getCharacterParts()
+    if not enemiesFolder or not myRoot then return nil end
+
+    local nearestEnemy = nil
+    local shortestDistance = math.huge
+
+    for _, enemy in ipairs(enemiesFolder:GetChildren()) do
+        if enemy.Name == targetName then
+            local enemyHumanoid = enemy:FindFirstChild("Humanoid")
+            local enemyRoot = enemy:FindFirstChild("HumanoidRootPart")
+
+            if enemyHumanoid and enemyHumanoid.Health > 0 and enemyRoot then
+                local distance = (myRoot.Position - enemyRoot.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    nearestEnemy = enemy
+                end
+            end
+        end
+    end
+    return nearestEnemy
+end
+
+local function attackTarget()
+    local character = LocalPlayer.Character
+    if not character then return end
+
+    if not character:FindFirstChildOfClass("Tool") then
+        local tool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if tool then
+            character.Humanoid:EquipTool(tool)
+        end
+    end
+
+    VirtualUser:CaptureController()
+    VirtualUser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+    task.wait(0.05)
+    VirtualUser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+end
+
+function startAutoFarm()
+    task.spawn(function()
+        while Settings.Enabled do
+            local myRoot, myHumanoid = getCharacterParts()
+
+            if myRoot and myHumanoid and myHumanoid.Health > 0 then
+                local targetName = Settings.ManualTarget
+
+                if Settings.AutoQuest then
+                    local questInfo = getQuestForLevel()
+                    targetName = questInfo.EnemyName
+
+                    if not hasActiveQuest() then
+                        acceptQuest(questInfo)
+                        task.wait(0.3)
+                    end
+                end
+
+                local target = getNearestEnemy(targetName)
+
+                if target then
+                    local targetRoot = target:FindFirstChild("HumanoidRootPart")
+                    local targetHumanoid = target:FindFirstChild("Humanoid")
+
+                    if targetRoot and targetHumanoid and targetHumanoid.Health > 0 then
+                        moveToCFrame(targetRoot.CFrame * CFrame.new(0, Settings.OffsetY, 0))
+
+                        while Settings.Enabled and targetHumanoid.Health > 0 and myHumanoid.Health > 0 do
+                            if Settings.AutoQuest and not hasActiveQuest() then
+                                break
+                            end
+
+                            myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, Settings.OffsetY, 0)
+                            attackTarget()
+                            task.wait(0.15)
+                        end
+                    end
+                elseif Settings.AutoQuest then
+                    local questInfo = getQuestForLevel()
+                    moveToCFrame(questInfo.NPCFrame * CFrame.new(0, 15, 0))
+                end
+            end
+
+            task.wait(0.2)
+        end
+    end)
+end
+
+-- 6. Mobile Touch Drag Support
+task.defer(function()
+    local parent = (gethui and gethui()) or CoreGui
+    local rayfieldGui = parent:FindFirstChild("Rayfield")
+
+    if rayfieldGui and rayfieldGui:FindFirstChild("Main") then
+        local mainFrame = rayfieldGui.Main
+        local topbar = mainFrame:FindFirstChild("Topbar") or mainFrame
+
+        local dragging = false
+        local dragInput, dragStart, startPos
+
+        topbar.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                dragStart = input.Position
+                startPos = mainFrame.Position
+
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+
+        topbar.InputChanged:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseMovement then
+                dragInput = input
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if input == dragInput and dragging then
+                local delta = input.Position - dragStart
+                mainFrame.Position = UDim2.new(
+                    startPos.X.Scale,
+                    startPos.X.Offset + delta.X,
+                    startPos.Y.Scale,
+                    startPos.Y.Offset + delta.Y
+)
+end
+end)
+end
 end)
